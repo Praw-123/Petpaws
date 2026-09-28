@@ -54,6 +54,31 @@ pipeline {
                 }
             }
         }
+
+        // Lab 04: branch strategy feature -> develop -> main
+        // develop = staging ปล่อยอัตโนมัติ, main = production ต้องมีคนกดอนุมัติก่อน
+        stage('Deploy — Staging') {
+            when { branch 'develop' }
+            steps {
+                script { env.LAST_STAGE = env.STAGE_NAME }
+                sh 'echo deploying to staging...'
+            }
+        }
+        stage('Deploy — Production') {
+            // beforeInput: เช็ค branch ก่อนถามอนุมัติ ไม่งั้น Jenkins จะหยุดถาม input
+            // ในทุก branch ก่อน แล้วค่อยข้าม stage ทีหลัง
+            when {
+                beforeInput true
+                branch 'main'
+            }
+            input {
+                message 'Deploy to production?'
+            }
+            steps {
+                script { env.LAST_STAGE = env.STAGE_NAME }
+                sh 'echo deploying to production...'
+            }
+        }
     }
 
     post {
