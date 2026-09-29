@@ -57,6 +57,7 @@ backend/api/.env.*
 backend/api/dist/
 backend/api/build/
 backend/api/coverage/
+backend/api/reports/
 backend/api/*.tsbuildinfo
 npm-debug.log*
 yarn-debug.log*
