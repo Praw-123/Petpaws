@@ -15,9 +15,23 @@ pipeline {
         // และไม่มีใครรู้ว่าพัง timeout จะยกเลิก build ปล่อย executor คืน และขึ้นสถานะให้เห็น
         // ปกติทั้ง pipeline ใช้ราว 8-10 นาที (รวม build image) 40 นาทีจึงเผื่อพอสำหรับรอบที่ช้า
         timeout(time: 40, unit: 'MINUTES')
+        // ปกติทุก stage ที่มี agent ของตัวเองจะดึงโค้ดจาก GitHub ใหม่ (~12 ครั้งต่อ build) เน็ตในแลป
+        // หลุดครั้งเดียวก็ทำให้ build พัง ทั้งที่ทุก stage รันบน linux-build ใน workspace เดียวกัน
+        // จึงปิดการดึงอัตโนมัติ แล้วดึงครั้งเดียวใน stage Checkout แทน
+        skipDefaultCheckout(true)
     }
 
     stages {
+        stage('Checkout') {
+            agent { label 'linux-build' }
+            steps {
+                // ลองใหม่สูงสุด 3 ครั้งเผื่อเน็ตหลุดชั่วคราว
+                retry(3) {
+                    checkout scm
+                }
+            }
+        }
+
         // Lab 06: ตรวจความปลอดภัยตามลำดับ Secrets -> SAST -> SCA -> SBOM -> Policy Gate
         // ทั้งหมดอยู่ก่อน Build & Test เพื่อให้โค้ดที่มีปัญหาถูกหยุดตั้งแต่ต้น (shift-left)
         stage('Security') {
