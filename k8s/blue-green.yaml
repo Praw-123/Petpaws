@@ -2,6 +2,10 @@
 # ส่งทราฟฟิกไปแค่สีเดียวตาม selector `color` ตอน deploy จะอัปเดตสีที่ไม่ได้ใช้งาน
 # ทดสอบผ่าน Service ประจำสีนั้นก่อน (smoke test) แล้วค่อยสลับ selector ของ `petpaws`
 # ครั้งแรกทั้งสองสีใช้ image ตัวเดียวกัน pipeline จะเปลี่ยน image ให้ทีละสีเอง
+#
+# readinessProbe เช็คแค่ว่าแอปเปิดพอร์ต 3000 แล้ว (tcpSocket) ส่วนการเช็คว่าแอปทำงานถูกต้อง
+# (/health ต่อฐานข้อมูลได้) เป็นหน้าที่ของ smoke test ใน pipeline ก่อนสลับทราฟฟิก
+# ถ้าให้ probe เช็ค /health ด้วย release ที่พังจะค้างที่ rollout จนหมดเวลา แทนที่ smoke test จะเป็นตัวจับ
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,7 +24,7 @@ spec:
           envFrom: [{ secretRef: { name: petpaws-env } }]
           ports: [{ containerPort: 3000 }]
           readinessProbe:
-            httpGet: { path: /health, port: 3000 }
+            tcpSocket: { port: 3000 }
             periodSeconds: 5
 ---
 apiVersion: apps/v1
@@ -41,7 +45,7 @@ spec:
           envFrom: [{ secretRef: { name: petpaws-env } }]
           ports: [{ containerPort: 3000 }]
           readinessProbe:
-            httpGet: { path: /health, port: 3000 }
+            tcpSocket: { port: 3000 }
             periodSeconds: 5
 ---
 # Service หลักที่ผู้ใช้เรียก สลับสีด้วย selector.color

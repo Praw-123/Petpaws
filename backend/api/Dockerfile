@@ -22,8 +22,7 @@ RUN npm ci --omit=dev
 # 64 จุดใน image เดิม ทั้งหมดมาจากโปรแกรมระบบของ Debian (gzip, mount, ncurses ฯลฯ) และ npm
 # ที่ติดมากับ base image ไม่ใช่จากโค้ดของเรา distroless มีแค่ Node.js + glibc ไม่มี shell,
 # npm หรือ package manager ใด ๆ ช่องโหว่ลดลงและผู้บุกรุกใช้เครื่องมือในนั้นต่อไม่ได้
-# TEST (Lab 07 รอบ B): ใช้ base image เดิมที่มีช่องโหว่ชั่วคราว เพื่อดูว่า Trivy บล็อกได้จริง
-FROM node:22-bookworm-slim
+FROM gcr.io/distroless/nodejs22-debian13:nonroot
 WORKDIR /app
 ENV NODE_ENV=production
 
@@ -35,4 +34,4 @@ EXPOSE 3000
 
 # entrypoint ของ distroless คือ node อยู่แล้ว จึงส่งแค่ไฟล์ที่จะรัน
 # ไม่มี shell ให้ใช้ HEALTHCHECK แบบเดิมได้ Kubernetes ตรวจสุขภาพผ่าน readinessProbe แทน
-CMD ["node", "dist/main.js"]
+CMD ["dist/main.js"]

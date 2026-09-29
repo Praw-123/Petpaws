@@ -1,4 +1,4 @@
-import { Controller, Get, Inject } from '@nestjs/common';
+import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common';
 import type { Pool } from 'pg';
 import { PG_POOL } from './database/database.module.js';
 import { Public } from './common/public.decorator.js';
@@ -12,6 +12,9 @@ export class AppController {
   @Public()
   @Get('health')
   async health() {
+    // TEST (Lab 07 รอบ C): จำลอง release ที่พัง แอปเปิดได้แต่ /health ตอบ 503
+    // เพื่อให้ smoke test ล้มและดู rollback อัตโนมัติ ต้อง revert ทันทีหลังทดสอบ
+    throw new ServiceUnavailableException('Lab 07 test: broken release');
     await this.pool.query('SELECT 1');
     return { status: 'ok', db: 'connected' };
   }
