@@ -127,7 +127,19 @@ pipeline {
                             env.LAST_STAGE = env.STAGE_NAME
                             // --omit=dev: สแกนเฉพาะ dependency ที่ขึ้นโปรดักชัน เครื่องมือฝั่งพัฒนาไม่ได้รันบนเซิร์ฟเวอร์
                             // npm audit คืน exit code 1 เมื่อพบช่องโหว่ จึงใส่ || true แล้วตัดสินจากตัวเลขใน JSON เอง
-                            sh 'cd backend/api && npm audit --omit=dev --json > ../../reports/audit.json || true'
+                            // ลองใหม่สูงสุด 3 ครั้ง เพราะ audit ต้องถามเซิร์ฟเวอร์ของ npm ซึ่งเน็ตในแลปหลุดเป็นระยะ
+                            // ถ้ายังไม่ได้ผล (ไม่มี metadata ใน JSON) ให้หยุด: ไม่รู้ผลการตรวจ = ถือว่าไม่ผ่าน
+                            sh '''
+                                cd backend/api
+                                for i in 1 2 3; do
+                                  npm audit --omit=dev --json > ../../reports/audit.json || true
+                                  grep -q '"metadata"' ../../reports/audit.json && exit 0
+                                  echo "npm audit could not reach the registry (attempt $i), retrying..."
+                                  sleep 5
+                                done
+                                echo "npm audit failed 3 times, cannot verify dependencies"
+                                exit 1
+                            '''
                             // คู่มือใช้ jq แต่ image node:22-alpine ไม่มี jq จึงอ่าน JSON ด้วย node แทน
                             def count = { String level ->
                                 sh(script: "node -p \"require('./reports/audit.json').metadata.vulnerabilities.${level}\"",
