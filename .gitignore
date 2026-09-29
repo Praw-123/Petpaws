@@ -70,3 +70,9 @@ backend/db/miniodata/
 
 # Jenkins agent binary — download from <jenkins-url>/jnlpJars/agent.jar
 agent.jar
+
+# Lab 05 E2E
+e2e/node_modules/
+e2e/playwright-report/
+e2e/results/
+e2e/test-results/

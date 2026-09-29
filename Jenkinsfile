@@ -122,6 +122,83 @@ pipeline {
             }
         }
 
+        stage('E2E') {
+            // agent linux-build โดยตรง (ไม่ใช่ใน container) เพราะต้องสั่ง docker เปิดฐานข้อมูลชั่วคราวเอง
+            agent { label 'linux-build' }
+            environment {
+                // เทสเป็นแบบ API (ยิง HTTP ใส่ backend) ไม่ต้องใช้เบราว์เซอร์ คู่มือใช้ image
+                // mcr.microsoft.com/playwright แต่ Docker บนเน็ตมหาวิทยาลัยดึงจาก mcr ไม่ได้ (EOF)
+                // จึงใช้ Node จาก Docker Hub แทน ถ้าดึงได้แล้วเปลี่ยนเป็น mcr.microsoft.com/playwright:v1.63.0-noble
+                E2E_IMAGE = 'node:22-bookworm-slim'
+                npm_config_cache = "${WORKSPACE}/.npm"
+                HOME = "${WORKSPACE}"
+                // ค่าสำหรับ backend ชั่วคราวใน e2e เท่านั้น ไม่ใช่ของจริง
+                DATABASE_URL = 'postgresql://petpaws:e2e@petpaws-e2e-db:5432/petpaws'
+                JWT_ACCESS_SECRET = 'e2e-access'
+                JWT_REFRESH_SECRET = 'e2e-refresh'
+                JWT_ACCESS_TTL = '15m'
+                JWT_REFRESH_TTL = '1d'
+                API_PORT = '3000'
+                CORS_ORIGIN = '*'
+                S3_ENDPOINT = 'http://petpaws-e2e-minio:9000'
+                S3_REGION = 'ap-southeast-1'
+                S3_BUCKET = 'petpaws-media'
+                S3_ACCESS_KEY_ID = 'e2e'
+                S3_SECRET_ACCESS_KEY = 'e2e-secret-123'
+                S3_FORCE_PATH_STYLE = 'true'
+                S3_UPLOAD_URL_TTL = '900'
+            }
+            steps {
+                script { env.LAST_STAGE = env.STAGE_NAME }
+                // คู่มือใช้ docker compose up -d แต่ compose mount ไฟล์ด้วย path ของเครื่อง ซึ่ง path ใน
+                // agent container ไม่มีอยู่จริงบนเครื่อง จึงใช้ docker cp ส่ง migration เข้าไปแทน
+                // backend ต้องมี Postgres (ข้อมูล) กับ MinIO (ตอนเริ่มระบบต้องสร้าง bucket) ส่วน Redis ไม่ใช้
+                sh '''
+                    docker rm -f petpaws-e2e-db petpaws-e2e-minio >/dev/null 2>&1 || true
+                    docker create --name petpaws-e2e-db --network jenkins \
+                      -e POSTGRES_USER=petpaws -e POSTGRES_PASSWORD=e2e -e POSTGRES_DB=petpaws \
+                      postgres:16-alpine
+                    docker cp backend/db/migrations/. petpaws-e2e-db:/docker-entrypoint-initdb.d/
+                    docker start petpaws-e2e-db
+                    docker run -d --name petpaws-e2e-minio --network jenkins \
+                      -e MINIO_ROOT_USER=e2e -e MINIO_ROOT_PASSWORD=e2e-secret-123 \
+                      quay.io/minio/minio:latest server /data
+                    until docker logs petpaws-e2e-db 2>&1 | grep -q "PostgreSQL init process complete"; do sleep 2; done
+                    until docker exec petpaws-e2e-db pg_isready -h 127.0.0.1 -U petpaws; do sleep 1; done
+                '''
+                script {
+                    docker.image(env.E2E_IMAGE).inside('--network jenkins') {
+                        // เปิด backend ใน step เดียวกับเทส ให้ปิดพร้อมกันเมื่อ step จบ
+                        sh '''
+                            cd backend/api
+                            npm ci
+                            npm run build
+                            node dist/main.js > api.log 2>&1 &
+                            API_PID=$!
+                            for i in $(seq 1 60); do
+                              node -e "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" && break
+                              sleep 1
+                            done
+                            cd ../../e2e
+                            npm ci
+                            set +e
+                            npx playwright test
+                            RC=$?
+                            kill $API_PID
+                            exit $RC
+                        '''
+                    }
+                }
+            }
+            post {
+                always {
+                    junit testResults: 'e2e/results/junit.xml', allowEmptyResults: true
+                    archiveArtifacts artifacts: 'e2e/playwright-report/**, backend/api/api.log', allowEmptyArchive: true
+                    sh 'docker rm -f petpaws-e2e-db petpaws-e2e-minio >/dev/null 2>&1 || true'
+                }
+            }
+        }
+
         // Lab 04: branch strategy feature -> develop -> main
         // develop = staging ปล่อยอัตโนมัติ, main = production ต้องมีคนกดอนุมัติก่อน
         stage('Deploy — Staging') {
