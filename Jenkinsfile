@@ -13,8 +13,8 @@ pipeline {
         // ทุก stage ต้องมีเวลาจำกัด: executor ของ linux-build มีแค่ 1 ช่อง ถ้า npm ci ค้างเพราะเน็ตหลุด
         // หรือเทสไม่ยอมจบ (เช่นมี connection ค้างอยู่) build จะยึด executor ไว้ตลอดไป งานอื่นทั้งคิวจะรอไม่มีที่สิ้นสุด
         // และไม่มีใครรู้ว่าพัง timeout จะยกเลิก build ปล่อย executor คืน และขึ้นสถานะให้เห็น
-        // ปกติทั้ง pipeline ใช้ราว 4-5 นาที 25 นาทีจึงเผื่อพอสำหรับรอบที่ช้า (รวมเวลารอ Quality Gate)
-        timeout(time: 25, unit: 'MINUTES')
+        // ปกติทั้ง pipeline ใช้ราว 8-10 นาที (รวม build image) 40 นาทีจึงเผื่อพอสำหรับรอบที่ช้า
+        timeout(time: 40, unit: 'MINUTES')
     }
 
     stages {
@@ -420,6 +420,113 @@ pipeline {
                     junit testResults: 'e2e/results/junit.xml', allowEmptyResults: true
                     archiveArtifacts artifacts: 'e2e/playwright-report/**, backend/api/api.log', allowEmptyArchive: true
                     sh 'docker rm -f petpaws-e2e-db petpaws-e2e-minio >/dev/null 2>&1 || true'
+                }
+            }
+        }
+
+        // Lab 07: build image -> scan -> blue/green บน Kubernetes (kind) ในเครื่อง
+        stage('Build Image') {
+            // รันบน linux-build ตรง ๆ เพราะต้องใช้ docker CLI ที่ต่อกับ Docker ของเครื่อง
+            agent { label 'linux-build' }
+            steps {
+                script {
+                    env.LAST_STAGE = env.STAGE_NAME
+                    // tag = commit 7 ตัวแรก ไม่ใช้ latest: image แต่ละ tag ผูกกับโค้ด 1 commit ตายตัว
+                    // ย้อนดูได้ว่า pod ไหนรันโค้ดเวอร์ชันไหน และ rollback ไป tag เดิมได้แน่นอน
+                    def sha = sh(script: 'git rev-parse --short=7 HEAD', returnStdout: true).trim()
+                    env.IMAGE_TAG = sha
+                    // localhost:5001 = registry ในเครื่อง (container kind-registry) ที่ kind ดึง image ได้
+                    env.IMAGE = "localhost:5001/petpaws-api:${sha}"
+                }
+                sh 'docker build -t "$IMAGE" backend/api'
+                sh 'docker push "$IMAGE"'
+            }
+        }
+        stage('Container Scan') {
+            agent {
+                docker {
+                    image 'aquasec/trivy:0.58.1'
+                    label 'linux-build'
+                    // สแกน image จาก registry ผ่าน network jenkins ไม่ต้องใช้ docker socket
+                    args '--network jenkins --entrypoint='
+                    reuseNode true
+                }
+            }
+            environment {
+                // ฐานข้อมูลช่องโหว่เก็บไว้ใน workspace โหลดครั้งแรกครั้งเดียว รอบต่อไปใช้ของเดิม
+                TRIVY_CACHE_DIR = "${WORKSPACE}/.trivy-cache"
+                // registry ในเครื่องเป็น http ไม่มี TLS
+                TRIVY_INSECURE = 'true'
+                SCAN_REF = "kind-registry:5000/petpaws-api:${env.IMAGE_TAG}"
+            }
+            steps {
+                script { env.LAST_STAGE = env.STAGE_NAME }
+                // รอบแรกเก็บผลเป็น SARIF เสมอ (exit-code 0) รอบสองพิมพ์ตารางและใช้ตัดสิน:
+                // มีช่องโหว่ HIGH หรือ CRITICAL แม้ตัวเดียว -> exit 1 -> หยุด pipeline ก่อน deploy
+                sh '''
+                    mkdir -p reports
+                    trivy image --no-progress --severity HIGH,CRITICAL --exit-code 0 \
+                      --format sarif --output reports/trivy.sarif "$SCAN_REF"
+                    trivy image --no-progress --skip-db-update --severity HIGH,CRITICAL --exit-code 1 \
+                      "$SCAN_REF"
+                '''
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'reports/trivy.sarif', allowEmptyArchive: true
+                }
+            }
+        }
+        stage('Blue/Green Deploy') {
+            agent {
+                docker {
+                    image 'alpine/k8s:1.31.4'
+                    label 'linux-build'
+                    // network kind: ต่อ API server ของคลัสเตอร์ด้วยชื่อ petpaws-control-plane ได้
+                    args '--network kind --entrypoint='
+                    reuseNode true
+                }
+            }
+            environment {
+                KUBECONFIG = credentials('kubeconfig')
+                HOME = "${WORKSPACE}"
+            }
+            steps {
+                script {
+                    env.LAST_STAGE = env.STAGE_NAME
+                    def current = sh(script: "kubectl get svc petpaws -o jsonpath='{.spec.selector.color}'",
+                                     returnStdout: true).trim()
+                    def next = current == 'blue' ? 'green' : 'blue'
+                    // จำสีเดิมไว้ให้ post failure ใช้ย้อนกลับ
+                    env.PREV_COLOR = current
+                    env.NEXT_COLOR = next
+                    echo "Traffic is on ${current}, deploying ${env.IMAGE_TAG} to ${next}"
+                    sh 'kubectl get svc petpaws -o yaml > reports/svc-before.yaml'
+
+                    sh "kubectl set image deployment/petpaws-${next} app=${env.IMAGE}"
+                    sh "kubectl rollout status deployment/petpaws-${next} --timeout=120s"
+                    // smoke test สีใหม่ตรง ๆ ผ่าน Service ประจำสี ก่อนให้ผู้ใช้จริงเห็น
+                    sh """
+                        kubectl run smoke-${BUILD_NUMBER} --rm -i --restart=Never \
+                          --image=curlimages/curl:8.11.1 --image-pull-policy=IfNotPresent -- \
+                          curl -sf http://petpaws-${next}:8080/health
+                    """
+                    sh "kubectl patch svc petpaws -p '{\"spec\":{\"selector\":{\"color\":\"${next}\"}}}'"
+                    echo "Switched traffic from ${current} to ${next}"
+                    sh 'kubectl get svc petpaws -o yaml > reports/svc-after.yaml'
+                }
+            }
+            post {
+                failure {
+                    // Rollback อัตโนมัติ: ให้ Service ชี้กลับสีเดิม และคืน Deployment สีใหม่เป็น image ก่อนหน้า
+                    // สีเดิมยังรันเวอร์ชันที่ใช้งานได้อยู่ตลอด ผู้ใช้จึงไม่เจอเวอร์ชันที่พัง
+                    echo "ROLLBACK: deploy to ${env.NEXT_COLOR} failed, restoring traffic to ${env.PREV_COLOR}"
+                    sh "kubectl patch svc petpaws -p '{\"spec\":{\"selector\":{\"color\":\"${env.PREV_COLOR}\"}}}'"
+                    sh "kubectl rollout undo deployment/petpaws-${env.NEXT_COLOR}"
+                    sh "kubectl get svc petpaws -o jsonpath='{.spec.selector.color}'"
+                }
+                always {
+                    archiveArtifacts artifacts: 'reports/svc-*.yaml', allowEmptyArchive: true
                 }
             }
         }
