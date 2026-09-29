@@ -79,3 +79,6 @@ e2e/test-results/
 
 # Lab 06 security reports (เก็บเป็น artifact ของ Jenkins)
 /reports/
+
+# Lab 07: ค่า Secret ของคลัสเตอร์ kind (สร้างจาก k8s/petpaws-env.example)
+k8s/petpaws-env.env

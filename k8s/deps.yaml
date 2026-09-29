@@ -1,28 +1,11 @@
 # บริการที่ backend ต้องใช้ตอนเริ่มระบบ: Postgres (ข้อมูล + /health ต้องต่อ DB ได้) และ
 # MinIO (ตอน boot backend สร้าง bucket เก็บรูป ถ้าต่อไม่ได้ backend จะไม่ขึ้น)
 # ติดตั้งครั้งเดียวตอนสร้างคลัสเตอร์ ไม่ได้ deploy ทุก build เหมือนตัว API
-# ค่ารหัสผ่านในไฟล์นี้ใช้ในคลัสเตอร์ทดลองบนเครื่องเท่านั้น ไม่ใช่ของโปรดักชัน
-apiVersion: v1
-kind: Secret
-metadata:
-  name: petpaws-env
-type: Opaque
-stringData:
-  DATABASE_URL: postgresql://petpaws:lab07@petpaws-db:5432/petpaws
-  JWT_ACCESS_SECRET: lab07-access
-  JWT_REFRESH_SECRET: lab07-refresh
-  JWT_ACCESS_TTL: 15m
-  JWT_REFRESH_TTL: 1d
-  API_PORT: "3000"
-  CORS_ORIGIN: "*"
-  S3_ENDPOINT: http://petpaws-minio:9000
-  S3_REGION: ap-southeast-1
-  S3_BUCKET: petpaws-media
-  S3_ACCESS_KEY_ID: lab07
-  S3_SECRET_ACCESS_KEY: lab07-secret-123
-  S3_FORCE_PATH_STYLE: "true"
-  S3_UPLOAD_URL_TTL: "900"
----
+#
+# รหัสผ่านทั้งหมดอยู่ใน Secret `petpaws-env` ซึ่งไม่ได้เก็บใน git (Gitleaks จับได้ตอนเคยใส่ไว้ในไฟล์นี้)
+# สร้างจากไฟล์ในเครื่องก่อน apply ไฟล์นี้:
+#   cp k8s/petpaws-env.example k8s/petpaws-env.env   (แก้ค่าใน .env ซึ่งถูก gitignore ไว้)
+#   kubectl create secret generic petpaws-env --from-env-file=k8s/petpaws-env.env
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -40,7 +23,8 @@ spec:
           image: postgres:16-alpine
           env:
             - { name: POSTGRES_USER, value: petpaws }
-            - { name: POSTGRES_PASSWORD, value: lab07 }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: petpaws-env, key: POSTGRES_PASSWORD } }
             - { name: POSTGRES_DB, value: petpaws }
           ports: [{ containerPort: 5432 }]
 ---
@@ -71,8 +55,10 @@ spec:
           imagePullPolicy: IfNotPresent
           args: [server, /data]
           env:
-            - { name: MINIO_ROOT_USER, value: lab07 }
-            - { name: MINIO_ROOT_PASSWORD, value: lab07-secret-123 }
+            - name: MINIO_ROOT_USER
+              valueFrom: { secretKeyRef: { name: petpaws-env, key: S3_ACCESS_KEY_ID } }
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: petpaws-env, key: S3_SECRET_ACCESS_KEY } }
           ports: [{ containerPort: 9000 }]
 ---
 apiVersion: v1

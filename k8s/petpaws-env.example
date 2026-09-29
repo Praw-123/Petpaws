@@ -1,0 +1,17 @@
+# ตัวอย่างค่า Secret `petpaws-env` สำหรับคลัสเตอร์ kind ในเครื่อง
+# คัดลอกเป็น petpaws-env.env (ถูก gitignore) แล้วเปลี่ยน CHANGE_ME ทุกช่อง ก่อน kubectl create secret
+POSTGRES_PASSWORD=CHANGE_ME
+DATABASE_URL=postgresql://petpaws:CHANGE_ME@petpaws-db:5432/petpaws
+JWT_ACCESS_SECRET=CHANGE_ME
+JWT_REFRESH_SECRET=CHANGE_ME
+JWT_ACCESS_TTL=15m
+JWT_REFRESH_TTL=1d
+API_PORT=3000
+CORS_ORIGIN=*
+S3_ENDPOINT=http://petpaws-minio:9000
+S3_REGION=ap-southeast-1
+S3_BUCKET=petpaws-media
+S3_ACCESS_KEY_ID=CHANGE_ME
+S3_SECRET_ACCESS_KEY=CHANGE_ME
+S3_FORCE_PATH_STYLE=true
+S3_UPLOAD_URL_TTL=900
