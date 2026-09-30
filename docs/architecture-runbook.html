@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PetPaws CI/CD Runbook</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1c2230; --muted: #5b6475; --line: #cfd5df; --bg: #ffffff; --soft: #f4f6f9;
+    --blue: #2f6fd6; --green: #1f9d63; --red: #d2413a; --amber: #c7851a; --violet: #7a4fd0;
+  }
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 12px/1.45 'Sarabun', sans-serif; }
+  .page { max-width: 186mm; margin: 0 auto; padding: 16px; }
+  .page + .page { page-break-before: always; }
+  h1 { font-size: 22px; margin: 0 0 2px; }
+  h2 { font-size: 16px; margin: 14px 0 6px; border-bottom: 2px solid var(--ink); padding-bottom: 2px; }
+  h3 { font-size: 13px; margin: 8px 0 3px; }
+  .sub { color: var(--muted); margin: 0 0 10px; }
+  code, pre { font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+  pre { background: var(--soft); border: 1px solid var(--line); border-radius: 4px;
+        padding: 6px 8px; margin: 4px 0 6px; white-space: pre-wrap; word-break: break-all; }
+  table { width: 100%; border-collapse: collapse; margin: 4px 0 8px; }
+  th, td { border: 1px solid var(--line); padding: 3px 6px; text-align: left; vertical-align: top; }
+  th { background: var(--soft); }
+  ol, ul { margin: 2px 0 6px; padding-left: 20px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--muted); font-size: 11.5px; margin-top: 4px; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px;
+                         margin-right: 5px; vertical-align: -1px; border-radius: 2px; background: var(--c); }
+  .tag { display: inline-block; padding: 0 6px; border-radius: 3px; color: #fff; font-size: 11px; font-weight: 600; }
+  .auto { background: var(--green); } .manual { background: var(--amber); }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { font-family: 'Sarabun', sans-serif; fill: var(--ink); }
+  svg .t { font-size: 13px; font-weight: 700; }
+  svg .s { font-size: 10.5px; fill: var(--muted); }
+  svg .m { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; fill: var(--muted); }
+  svg .zone { fill: none; stroke: var(--line); stroke-dasharray: 4 3; }
+  svg .zl { font-size: 11px; font-weight: 700; fill: var(--muted); letter-spacing: .5px; }
+  svg .box { fill: #fff; stroke: #8792a6; }
+  svg .gate { fill: #fdeceb; stroke: var(--red); }
+  svg .stage { fill: var(--soft); stroke: #8792a6; }
+  svg .par { fill: #eaf1fd; stroke: var(--blue); }
+  svg .ar { stroke: var(--ink); stroke-width: 1.3; fill: none; marker-end: url(#a); }
+  svg .ad { stroke: var(--muted); stroke-width: 1.1; fill: none; stroke-dasharray: 4 3; marker-end: url(#a2); }
+  @media print { .page { padding: 0; } }
+</style>
+</head>
+<body>
+
+<!-- ===================== หน้า 1: Architecture ===================== -->
+<section class="page">
+  <h1>PetPaws CI/CD: Architecture Diagram</h1>
+  <p class="sub">ระบบ Jenkins สำหรับ PetPaws API (NestJS, <code>backend/api</code>) และ PetPaws Mobile (Flutter) · Lab 10 · สำหรับทีม Operation</p>
+
+  <svg viewBox="0 0 1000 560" role="img" aria-label="Architecture diagram">
+    <defs>
+      <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#1c2230"/></marker>
+      <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#5b6475"/></marker>
+    </defs>
+
+    <!-- แหล่งโค้ด -->
+    <rect class="box" x="10" y="20" width="130" height="54" rx="6"/>
+    <text class="t" x="75" y="43" text-anchor="middle">Developer</text>
+    <text class="s" x="75" y="61" text-anchor="middle">git push / PR</text>
+
+    <rect class="box" x="175" y="20" width="160" height="54" rx="6"/>
+    <text class="t" x="255" y="43" text-anchor="middle">GitHub</text>
+    <text class="m" x="255" y="61" text-anchor="middle">Praw-123/Petpaws</text>
+    <path class="ar" d="M140,47H173"/>
+
+    <!-- Jenkins controller -->
+    <rect class="box" x="375" y="10" width="250" height="74" rx="6" style="stroke:#1c2230;stroke-width:1.6"/>
+    <text class="t" x="500" y="32" text-anchor="middle">Jenkins Controller</text>
+    <text class="m" x="500" y="49" text-anchor="middle">docker "jenkins" · :8081</text>
+    <text class="s" x="500" y="66" text-anchor="middle">Multibranch: petpaws-multibranch, petpaws-mobile</text>
+    <text class="s" x="500" y="79" text-anchor="middle">Job: petpaws-infra · Credentials Store</text>
+    <path class="ar" d="M335,47H373"/>
+    <text class="s" x="354" y="40" text-anchor="middle">scan</text>
+
+    <!-- Slack + Monitoring -->
+    <rect class="box" x="670" y="10" width="140" height="40" rx="6"/>
+    <text class="t" x="740" y="35" text-anchor="middle">Slack</text>
+    <path class="ar" d="M625,30H668"/>
+    <text class="s" x="646" y="24" text-anchor="middle">notify</text>
+
+    <rect class="box" x="850" y="10" width="140" height="74" rx="6"/>
+    <text class="t" x="920" y="30" text-anchor="middle">Prometheus</text>
+    <text class="m" x="920" y="45" text-anchor="middle">:9090 · alerts.yml</text>
+    <text class="t" x="920" y="64" text-anchor="middle">Grafana</text>
+    <text class="m" x="920" y="78" text-anchor="middle">:3003</text>
+    <path class="ad" d="M848,70H627"/>
+    <text class="s" x="740" y="66" text-anchor="middle">scrape /prometheus</text>
+
+    <!-- Agents -->
+    <rect class="zone" x="10" y="110" width="980" height="120" rx="8"/>
+    <text class="zl" x="22" y="127">BUILD AGENTS</text>
+
+    <rect class="box" x="25" y="135" width="300" height="84" rx="6"/>
+    <text class="t" x="175" y="156" text-anchor="middle">linux-build (Docker agent)</text>
+    <text class="s" x="175" y="174" text-anchor="middle">รัน tool เป็น container ต่อ stage:</text>
+    <text class="m" x="175" y="190" text-anchor="middle">gitleaks · semgrep · eslint · syft</text>
+    <text class="m" x="175" y="205" text-anchor="middle">cosign · opa · trivy · petpaws-iac</text>
+
+    <rect class="box" x="350" y="135" width="300" height="84" rx="6"/>
+    <text class="t" x="500" y="156" text-anchor="middle">Kubernetes Pods (kind)</text>
+    <text class="s" x="500" y="174" text-anchor="middle">สร้างใหม่ทุก build ลบทิ้งเมื่อจบ</text>
+    <text class="m" x="500" y="190" text-anchor="middle">node:22-alpine → API Build &amp; Test</text>
+    <text class="m" x="500" y="205" text-anchor="middle">cirruslabs/flutter → Mobile</text>
+
+    <rect class="box" x="675" y="135" width="300" height="84" rx="6"/>
+    <text class="t" x="825" y="156" text-anchor="middle">SonarQube 9.9</text>
+    <text class="m" x="825" y="174" text-anchor="middle">:9002</text>
+    <text class="s" x="825" y="192" text-anchor="middle">Quality Gate "PetPaws Gate"</text>
+    <text class="s" x="825" y="207" text-anchor="middle">coverage ต้อง ≥ 70%</text>
+
+    <path class="ar" d="M460,84L200,133"/>
+    <path class="ar" d="M500,84V133"/>
+    <path class="ar" d="M540,84L800,133"/>
+
+    <!-- Pipeline API -->
+    <text class="zl" x="12" y="256">API PIPELINE (Jenkinsfile)</text>
+    <g font-size="10">
+      <rect class="stage" x="10"  y="264" width="70" height="36" rx="4"/><text class="s" x="45"  y="286" text-anchor="middle">Checkout</text>
+      <rect class="gate"  x="88"  y="264" width="70" height="36" rx="4"/><text class="s" x="123" y="286" text-anchor="middle">Gitleaks</text>
+      <rect class="par"   x="166" y="258" width="118" height="48" rx="4"/>
+      <text class="s" x="225" y="273" text-anchor="middle">Verify (parallel)</text>
+      <text class="m" x="225" y="287" text-anchor="middle">Test · ESLint</text>
+      <text class="m" x="225" y="299" text-anchor="middle">Semgrep · npm audit</text>
+      <rect class="gate"  x="292" y="258" width="100" height="48" rx="4"/>
+      <text class="s" x="342" y="273" text-anchor="middle">Supply Chain</text>
+      <text class="m" x="342" y="287" text-anchor="middle">SBOM · Cosign</text>
+      <text class="m" x="342" y="299" text-anchor="middle">OPA policy</text>
+      <rect class="gate"  x="400" y="264" width="84" height="36" rx="4"/><text class="s" x="442" y="286" text-anchor="middle">Quality Gate</text>
+      <rect class="stage" x="492" y="264" width="52" height="36" rx="4"/><text class="s" x="518" y="286" text-anchor="middle">E2E</text>
+      <rect class="stage" x="552" y="264" width="70" height="36" rx="4"/><text class="s" x="587" y="286" text-anchor="middle">Build Image</text>
+      <rect class="gate"  x="630" y="264" width="60" height="36" rx="4"/><text class="s" x="660" y="286" text-anchor="middle">Trivy</text>
+      <rect class="gate"  x="698" y="258" width="92" height="48" rx="4"/>
+      <text class="s" x="744" y="277" text-anchor="middle">Blue/Green</text>
+      <text class="m" x="744" y="293" text-anchor="middle">smoke test</text>
+      <rect class="stage" x="798" y="264" width="56" height="36" rx="4"/><text class="s" x="826" y="286" text-anchor="middle">Staging</text>
+      <rect class="gate"  x="862" y="258" width="62" height="48" rx="4"/>
+      <text class="s" x="893" y="277" text-anchor="middle">Health</text>
+      <text class="m" x="893" y="293" text-anchor="middle">20 builds</text>
+      <rect class="gate"  x="932" y="258" width="58" height="48" rx="4"/>
+      <text class="s" x="961" y="277" text-anchor="middle">Prod</text>
+      <text class="m" x="961" y="293" text-anchor="middle">approve</text>
+    </g>
+
+    <!-- Pipeline Mobile -->
+    <text class="zl" x="12" y="334">MOBILE PIPELINE (mobile.Jenkinsfile)</text>
+    <rect class="stage" x="10"  y="342" width="100" height="36" rx="4"/><text class="s" x="60"  y="364" text-anchor="middle">Checkout + pub get</text>
+    <rect class="par"   x="118" y="336" width="230" height="48" rx="4"/>
+    <text class="s" x="233" y="352" text-anchor="middle">Verify (parallel)</text>
+    <text class="m" x="233" y="370" text-anchor="middle">analyze · test --coverage · osv-scanner</text>
+    <rect class="stage" x="356" y="342" width="110" height="36" rx="4"/><text class="s" x="411" y="364" text-anchor="middle">Debug APK (ทุก branch)</text>
+    <rect class="gate"  x="474" y="342" width="170" height="36" rx="4"/><text class="s" x="559" y="364" text-anchor="middle">Signed Release AAB (main)</text>
+    <text class="s" x="655" y="364">keystore จาก credential android-keystore</text>
+
+    <!-- Runtime -->
+    <rect class="zone" x="10" y="400" width="600" height="150" rx="8"/>
+    <text class="zl" x="22" y="417">RUNTIME: kind cluster "petpaws" (context kind-petpaws)</text>
+
+    <rect class="box" x="25" y="428" width="150" height="50" rx="6"/>
+    <text class="t" x="100" y="450" text-anchor="middle">Registry</text>
+    <text class="m" x="100" y="466" text-anchor="middle">localhost:5001</text>
+
+    <rect class="box" x="210" y="428" width="140" height="50" rx="6" style="stroke:#1c2230;stroke-width:1.6"/>
+    <text class="t" x="280" y="450" text-anchor="middle">Service petpaws</text>
+    <text class="m" x="280" y="466" text-anchor="middle">selector.color</text>
+
+    <rect class="box" x="390" y="424" width="100" height="40" rx="6" style="stroke:var(--blue)"/>
+    <text class="t" x="440" y="449" text-anchor="middle" style="fill:var(--blue)">petpaws-blue</text>
+    <rect class="box" x="390" y="494" width="100" height="40" rx="6" style="stroke:var(--green)"/>
+    <text class="t" x="440" y="519" text-anchor="middle" style="fill:var(--green)">petpaws-green</text>
+    <path class="ar" d="M350,450H388"/>
+    <path class="ad" d="M350,462L388,510"/>
+
+    <rect class="box" x="500" y="440" width="105" height="80" rx="6"/>
+    <text class="t" x="552" y="468" text-anchor="middle">Postgres</text>
+    <text class="t" x="552" y="488" text-anchor="middle">MinIO</text>
+    <text class="m" x="552" y="508" text-anchor="middle">secret petpaws-env</text>
+    <path class="ad" d="M490,444L503,470"/>
+    <path class="ad" d="M490,514L503,494"/>
+
+    <text class="s" x="100" y="500" text-anchor="middle">ภาพ distroless</text>
+    <text class="s" x="100" y="514" text-anchor="middle">+ SBOM ลงนาม Cosign</text>
+    <path class="ad" d="M100,480V486"/>
+
+    <!-- IaC -->
+    <rect class="zone" x="630" y="400" width="360" height="150" rx="8"/>
+    <text class="zl" x="642" y="417">INFRASTRUCTURE (petpaws-infra)</text>
+    <rect class="gate" x="645" y="428" width="160" height="50" rx="6"/>
+    <text class="t" x="725" y="448" text-anchor="middle">Terraform + Ansible</text>
+    <text class="m" x="725" y="466" text-anchor="middle">tfsec · checkov · approve</text>
+    <rect class="box" x="820" y="428" width="155" height="50" rx="6"/>
+    <text class="t" x="897" y="448" text-anchor="middle">LocalStack</text>
+    <text class="m" x="897" y="466" text-anchor="middle">S3 state · DynamoDB lock</text>
+    <rect class="box" x="645" y="494" width="160" height="44" rx="6"/>
+    <text class="t" x="725" y="514" text-anchor="middle">petpaws-host</text>
+    <text class="m" x="725" y="530" text-anchor="middle">SSH · Node · Docker</text>
+    <path class="ar" d="M805,453H818"/>
+    <path class="ar" d="M725,478V492"/>
+  </svg>
+
+  <div class="legend">
+    <span style="--c:#d2413a">Gate: ไม่ผ่านแล้วหยุด pipeline</span>
+    <span style="--c:#2f6fd6">รันขนาน (parallel)</span>
+    <span style="--c:#8792a6">stage ทั่วไป</span>
+    <span>เส้นประ = เส้นทางสำรอง / ข้อมูลอ่านอย่างเดียว</span>
+  </div>
+
+  <h2>จุดสำคัญของสถาปัตยกรรม</h2>
+  <ul>
+    <li><b>Secret ไม่อยู่ใน Git:</b> อ้างผ่าน Jenkins Credentials เท่านั้น (<code>github-token</code>, <code>sonar-token</code>, <code>cosign-key</code>, <code>cosign-password</code>, <code>kubeconfig</code>, <code>e2e-env</code>, <code>localstack-aws</code>, <code>slack-webhook</code>, <code>android-keystore</code>, <code>android-keystore-password</code>) ใน log จะแสดงเป็น <code>****</code></li>
+    <li><b>Zero-downtime deploy:</b> deploy ลงสีที่ไม่ได้รับทราฟฟิก, smoke test ผ่าน Service ประจำสีนั้นก่อน แล้วจึงสลับ <code>selector.color</code> ของ Service <code>petpaws</code></li>
+    <li><b>Production มีสองด่าน:</b> Pipeline Health Gate (20 build ล่าสุดต้องสำเร็จ ≥ 90%) และคนกดอนุมัติ ทั้งสองทำเฉพาะ branch <code>main</code></li>
+    <li><b>Supply chain:</b> SBOM (CycloneDX) ถูกลงนามด้วย Cosign และตรวจด้วยกฎ OPA; image ถูกสแกนโดย Trivy (HIGH/CRITICAL = บล็อก)</li>
+    <li><b>Infrastructure:</b> Terraform state อยู่ใน S3 (เปิด versioning) พร้อม DynamoDB lock; apply เฉพาะไฟล์ plan ที่ผ่านการอนุมัติ</li>
+  </ul>
+</section>
+
+<!-- ===================== หน้า 2: Runbook ===================== -->
+<section class="page">
+  <h1>Rollback Runbook</h1>
+  <p class="sub">ขั้นตอนย้อนกลับเมื่อ release มีปัญหา · คำสั่งทั้งหมดรันบนเครื่อง ops ที่มี <code>kubectl --context kind-petpaws</code></p>
+
+  <table>
+    <tr><th style="width:34%">อาการ / สัญญาณ</th><th style="width:14%">ประเภท</th><th>ใช้ขั้นตอน</th></tr>
+    <tr><td>Smoke test สีใหม่ล้ม (Slack: stage <i>Blue/Green Deploy</i> FAILURE)</td><td><span class="tag auto">อัตโนมัติ</span></td><td>R1: ตรวจว่า rollback อัตโนมัติสำเร็จ</td></tr>
+    <tr><td>Deploy ผ่านแล้ว แต่ผู้ใช้เจอ error / latency สูง</td><td><span class="tag manual">คนทำ</span></td><td>R2: สลับทราฟฟิกกลับสีเดิม</td></tr>
+    <tr><td>ทั้งสองสีมีเวอร์ชันเสีย</td><td><span class="tag manual">คนทำ</span></td><td>R3: ย้อน image ด้วย rollout undo / build commit เก่า</td></tr>
+    <tr><td>แอปมือถือรุ่นใหม่มีปัญหา</td><td><span class="tag manual">คนทำ</span></td><td>R4</td></tr>
+    <tr><td>เปลี่ยน infrastructure แล้วพัง / state lock ค้าง</td><td><span class="tag manual">คนทำ</span></td><td>R5</td></tr>
+  </table>
+
+  <h3>R1: Rollback อัตโนมัติจาก pipeline</h3>
+  <p>เมื่อ stage <i>Blue/Green Deploy</i> ล้ม, <code>post { failure }</code> จะ log <code>ROLLBACK: deploy to &lt;สีใหม่&gt; failed, restoring traffic to &lt;สีเดิม&gt;</code> แล้ว patch Service กลับสีเดิมและ <code>rollout undo</code> deployment ของสีใหม่ ผู้ใช้จึงไม่ถูกส่งไปยังเวอร์ชันเสีย ops ตรวจยืนยัน:</p>
+<pre>kubectl get svc petpaws -o jsonpath='{.spec.selector.color}'   # ต้องเป็นสีเดิม
+kubectl get pods -l app=petpaws-api -L color                     # สีเดิมต้อง Running/Ready</pre>
+
+  <h3>R2: สลับทราฟฟิกกลับสีเดิม (ใช้เวลา &lt; 1 นาที)</h3>
+  <ol>
+    <li>ดูสีปัจจุบัน: <code>kubectl get svc petpaws -o jsonpath='{.spec.selector.color}'</code> (สมมติได้ <code>green</code> สีเดิมคือ <code>blue</code>)</li>
+    <li>ตรวจว่าสีเดิมยังพร้อม: <code>kubectl rollout status deployment/petpaws-blue</code></li>
+    <li>สลับ: <code>kubectl patch svc petpaws -p '{"spec":{"selector":{"color":"blue"}}}'</code></li>
+    <li>ยืนยัน: <code>kubectl get endpoints petpaws</code> ต้องชี้ IP ของ pod สี blue และทดสอบ API ผ่าน Service พอร์ต 8080</li>
+    <li>แจ้งใน Slack และเปิด ticket แก้ build ที่เสีย <b>ห้ามกด rebuild ซ้ำจนกว่าจะแก้โค้ด</b></li>
+  </ol>
+
+  <h3>R3: ย้อนเวอร์ชัน image</h3>
+<pre>kubectl rollout history deployment/petpaws-green
+kubectl rollout undo deployment/petpaws-green            # หรือ --to-revision=&lt;N&gt;
+kubectl rollout status deployment/petpaws-green</pre>
+  <p>จากนั้นใช้ R2 สลับทราฟฟิกไปสีที่ย้อนแล้ว ทางที่ถาวรกว่าคือ <code>git revert</code> commit ที่เสียแล้ว push เข้า <code>main</code> ให้ pipeline build และผ่านทุก gate ใหม่ (image ทุกตัวติด tag ตาม commit SHA: <code>localhost:5001/petpaws-api:&lt;sha&gt;</code> จึงย้อนได้ตรงตัว)</p>
+
+  <h3>R4: Mobile</h3>
+  <ul>
+    <li>AAB ที่ลงนามแล้วของทุก build บน <code>main</code> ถูกเก็บเป็น artifact ใน job <code>petpaws-mobile</code></li>
+    <li>Store ไม่ยอมรับ <code>versionCode</code> ที่ต่ำกว่าเดิม: ให้ <code>git revert</code> แล้วเพิ่มเลข build ใน <code>pubspec.yaml</code> (<code>version: x.y.z+N</code>) จากนั้นให้ pipeline สร้าง AAB ใหม่ด้วย keystore เดิม</li>
+    <li>ระหว่างรอ ให้หยุด staged rollout ของรุ่นที่มีปัญหาในหน้า console ของ store</li>
+  </ul>
+
+  <h3>R5: Infrastructure (Terraform / Ansible)</h3>
+  <ol>
+    <li><code>git revert</code> การแก้ใน <code>infra/</code> แล้วรัน job <code>petpaws-infra</code> ด้วย <code>ACTION=apply</code> ตรวจ <code>tfplan.txt</code> ใน artifact ก่อนกดอนุมัติ</li>
+    <li>ถ้า state เสีย: bucket <code>petpaws-tfstate</code> เปิด versioning ไว้ กู้เวอร์ชันก่อนหน้าด้วย <code>aws --endpoint-url http://localstack:4566 s3api list-object-versions --bucket petpaws-tfstate</code> แล้ว copy เวอร์ชันที่ต้องการทับ</li>
+    <li>ถ้า lock ค้าง (build ถูกยกเลิกกลางคัน): ตรวจว่าไม่มี build อื่นรันอยู่ แล้ว <code>terraform force-unlock &lt;LOCK_ID&gt;</code></li>
+  </ol>
+
+  <h3>หลัง rollback ทุกครั้ง</h3>
+  <ul>
+    <li>ตรวจ Grafana (<code>:3003</code>) ว่า success rate และคิว build กลับเป็นปกติ</li>
+    <li>ถ้าสาเหตุคือ secret รั่ว: เปลี่ยนค่าใน Jenkins Credentials และ Secret <code>petpaws-env</code> แล้ว restart deployment ทั้งสองสี</li>
+    <li>บันทึก postmortem: เวลา, build ที่เสีย, gate ไหนควรจับได้, สิ่งที่จะแก้</li>
+  </ul>
+</section>
+
+</body>
+</html>

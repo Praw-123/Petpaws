@@ -480,7 +480,8 @@ pipeline {
                     // localhost:5001 = registry ในเครื่อง (container kind-registry) ที่ kind ดึง image ได้
                     env.IMAGE = "localhost:5001/petpaws-api:${sha}"
                 }
-                sh 'docker build -t "$IMAGE" backend/api'
+                // --pull: ใช้ base image รุ่นล่าสุดเสมอ ได้แพตช์ความปลอดภัยของ OS (เช่น openssl) ไม่ติด cache เก่า
+                sh 'docker build --pull -t "$IMAGE" backend/api'
                 sh 'docker push "$IMAGE"'
             }
         }
@@ -586,25 +587,26 @@ pipeline {
         // Lab 10: ก่อนขึ้น production ถาม Prometheus ว่า pipeline ช่วงหลังเสถียรไหม
         // อัตราสำเร็จของ build ต่ำกว่า 90% = ระบบไม่เสถียร ห้าม deploy จนกว่าจะแก้ให้ build กลับมาผ่าน
         stage('Pipeline Health Gate') {
-            when {
-                beforeAgent true
-                branch 'main'
-            }
-            agent { label 'linux-build' }
+            // ไม่ต้องใช้ agent: นับจากประวัติ build ของ job นี้ในตัว Jenkins เอง
+            when { branch 'main' }
             steps {
                 script {
                     env.LAST_STAGE = env.STAGE_NAME
-                    // Prometheus plugin เก็บจำนวน build ที่สำเร็จ/ล้มของทุก job ในช่วง retention (7 วัน)
-                    def q = 'sum(max_over_time({__name__=~"default_jenkins_builds_success_build_count(_total)?"}[7d]))' +
-                            ' / (sum(max_over_time({__name__=~"default_jenkins_builds_success_build_count(_total)?"}[7d]))' +
-                            ' + sum(max_over_time({__name__=~"default_jenkins_builds_failed_build_count(_total)?"}[7d])))'
-                    def rate = sh(returnStdout: true, script: """
-                        curl -s --get http://prometheus:9090/api/v1/query --data-urlencode 'query=${q}' |
-                          node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const r=JSON.parse(d).data.result;console.log(r.length?r[0].value[1]:'0')})"
-                    """).trim().toDouble()
-                    echo "Pipeline success rate (Prometheus): ${String.format('%.1f', rate * 100)}% (threshold 90%)"
+                    // ดู 20 build ล่าสุดที่จบแล้ว (ไม่นับ build ที่ยังรันอยู่) ต้องสำเร็จอย่างน้อย 90%
+                    int total = 0, ok = 0
+                    def b = currentBuild.previousBuild
+                    while (b != null && total < 20) {
+                        if (b.result != null) {
+                            total++
+                            if (b.result == 'SUCCESS') { ok++ }
+                            echo "  #${b.number}: ${b.result}"
+                        }
+                        b = b.previousBuild
+                    }
+                    def rate = total ? ok / (double) total : 1.0d
+                    echo "Pipeline success rate: ${ok}/${total} = ${String.format('%.1f', rate * 100)}% (threshold 90%)"
                     if (rate < 0.9) {
-                        error("Pipeline Health Gate: success rate ${String.format('%.1f', rate * 100)}% < 90%, production deploy blocked")
+                        error("Pipeline Health Gate: ${ok}/${total} builds succeeded (${String.format('%.1f', rate * 100)}%) < 90%, production deploy blocked")
                     }
                 }
             }

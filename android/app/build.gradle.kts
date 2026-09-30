@@ -25,11 +25,27 @@ android {
         versionName = flutter.versionName
     }
 
+    // Lab 10: keystore สำหรับ release มาจากตัวแปรสภาพแวดล้อมที่ Jenkins ใส่ให้จาก credential
+    // (ไฟล์ keystore และรหัสผ่านไม่อยู่ใน repo) ถ้าไม่มี (รันในเครื่องนักพัฒนา) ใช้ debug key ไปก่อน
+    val releaseKeystore = System.getenv("ANDROID_KEYSTORE_FILE")
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: "petpaws"
+                keyPassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (releaseKeystore != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

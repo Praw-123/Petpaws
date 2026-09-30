@@ -1,0 +1,9 @@
+# ยอมรับความเสี่ยงชั่วคราว (risk acceptance) มีวันหมดอายุ: เลยวันนั้น Trivy จะกลับมาบล็อกอีก
+# ทั้งสองตัวอยู่ใน libssl3t64 3.5.7-1~deb13u2 ของ base image distroless ซึ่งต้นทางยังไม่ออก build ที่แก้แล้ว
+# API ใช้ HTTP บน TCP เท่านั้น ไม่ได้ใช้ QUIC หรือ DTLS จึงไม่เข้าเงื่อนไขของช่องโหว่
+# pipeline ใช้ docker build --pull อยู่แล้ว เมื่อ distroless อัปเดตก็จะได้แพตช์อัตโนมัติ แล้วลบรายการนี้ทิ้ง
+
+# openssl: DoS ผ่าน QUIC connection flow control
+CVE-2026-75804 exp:2026-10-31
+# openssl: ข้อมูลรั่วผ่าน DTLS handshake retransmission
+CVE-2026-84782 exp:2026-10-31
