@@ -261,14 +261,28 @@ pipeline {
             // รันใน container node:22-alpine บน agent linux-build (agent ตัวเดียวที่สั่ง docker ได้)
             // คู่มือใช้ node:20-alpine แต่ backend ของ PetPaws ต้องใช้ Node 22: dependency บางตัวกำหนด
             // engine >= 22 และบน Node 20 + alpine แพ็กเกจ argon2 ไม่มีไฟล์สำเร็จรูป ต้องคอมไพล์เอง
+            // Lab 09: ย้ายจาก docker agent บน linux-build มาเป็น Pod ชั่วคราวบน Kubernetes (kind)
+            // Jenkins สร้าง Pod ใหม่ทุก build แล้วลบทิ้งเมื่อจบ ไม่ต้องมีเครื่อง agent ค้างไว้
             agent {
-                docker {
-                    image 'node:22-alpine'
-                    label 'linux-build'
+                kubernetes {
+                    defaultContainer 'node'
+                    yaml '''
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: node
+    image: node:22-alpine
+    imagePullPolicy: IfNotPresent
+    command: ['cat']
+    tty: true
+  - name: jnlp
+    image: jenkins/inbound-agent:latest-jdk21
+    imagePullPolicy: IfNotPresent
+'''
                 }
             }
             environment {
-                // container รันด้วย uid ของ agent ซึ่งเขียนลง HOME ไม่ได้ ให้ npm เก็บ cache ใน workspace แทน
                 npm_config_cache = "${WORKSPACE}/.npm"
             }
             stages {
@@ -277,6 +291,12 @@ pipeline {
                         // post ระดับ pipeline ไม่ได้อยู่ใน stage ไหน env.STAGE_NAME ตรงนั้นจึงเป็น null
                         // เลยจำชื่อ stage ล่าสุดไว้เอง เพื่อให้ post failure บอกได้ว่าพังที่ stage ไหน
                         script { env.LAST_STAGE = env.STAGE_NAME }
+                        // Pod เป็น workspace ใหม่ทุกครั้ง ต้องดึงโค้ดเอง (ใน container jnlp ซึ่งมี git)
+                        container('jnlp') {
+                            retry(3) {
+                                checkout scm
+                            }
+                        }
                         echo "Building ${env.APP_NAME} (NODE_ENV=${env.NODE_ENV})"
                         dir('backend/api') {
                             sh 'node --version'
@@ -311,6 +331,8 @@ pipeline {
                         sourceDirectories: [[path: 'backend/api']]
                     // npm 10 ไม่สร้าง npm-debug.log ในโฟลเดอร์งานแล้ว แต่เขียน log ไว้ใน cache/_logs แทน
                     archiveArtifacts artifacts: 'backend/api/npm-debug.log*, .npm/_logs/*.log', allowEmptyArchive: true
+                    // Pod ถูกลบเมื่อ stage จบ ส่งไฟล์ coverage ต่อให้ stage SonarQube ที่รันบน linux-build
+                    stash name: 'coverage', includes: 'backend/api/coverage/**', allowEmpty: true
                 }
             }
         }
@@ -331,6 +353,7 @@ pipeline {
             }
             steps {
                 script { env.LAST_STAGE = env.STAGE_NAME }
+                unstash 'coverage'
                 withSonarQubeEnv('SonarQube') {
                     dir('backend/api') {
                         // coverage.exclusions ตรงกับ exclude ใน vitest.config.ts: วัด coverage เฉพาะ logic

@@ -1,0 +1,27 @@
+groups:
+  - name: jenkins-slo
+    rules:
+      # อาการที่ผู้ใช้รู้สึกได้จริง: build ต้องรอคิวนาน (ไม่มี agent ว่าง) ไม่ใช่แค่ CPU สูง
+      # คิวค้างต่อเนื่อง 5 นาที = งานรอเกิน 2 นาทีแน่นอน
+      - alert: JenkinsQueueBacklog
+        expr: jenkins_queue_size_value > 0 and avg_over_time(jenkins_queue_size_value[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Jenkins build queue backlog exceeds 2 minutes"
+          description: "มี build รอในคิว {{ $value }} งานต่อเนื่องมากกว่า 5 นาที agent ไม่พอ"
+
+      # SLO: 95% ของ build ต้องเสร็จภายใน 6 นาที ประเมินย้อนหลัง 7 วัน
+      # ใช้ p95 ของเวลา build (summary ของ Prometheus plugin) สูงสุดในช่วง 7 วัน
+      - record: jenkins:build_duration_seconds:p95_7d
+        expr: max(max_over_time(default_jenkins_builds_duration_milliseconds_summary{quantile="0.95"}[7d])) / 1000
+
+      - alert: JenkinsBuildDurationSLOBreach
+        expr: jenkins:build_duration_seconds:p95_7d > 360
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 build duration over 7 days exceeds the 6 minute SLO"
+          description: "p95 = {{ $value | humanizeDuration }}"
