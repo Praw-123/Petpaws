@@ -76,6 +76,12 @@ resource "aws_instance" "app" {
   }
 
   tags = merge(local.tags, { Name = "petpaws-app" })
+
+  # LocalStack รายงาน metadata_options กลับมาไม่ครบ Terraform จึงเห็นว่าต่างและพยายามแก้ทุกรอบ
+  # แต่ LocalStack รุ่นฟรียังไม่รองรับคำสั่งแก้ (ModifyInstanceMetadataOptions) ค่าที่ตั้งตอนสร้างยังถูกใช้อยู่
+  lifecycle {
+    ignore_changes = [metadata_options]
+  }
 }
 
 # ---------- Docker host (เครื่องที่ Ansible ตั้งค่าได้จริง) ----------
