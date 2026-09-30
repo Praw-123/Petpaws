@@ -9,9 +9,11 @@ pipeline {
     }
 
     environment {
-        // credential จำลองของ LocalStack (ไม่ใช่บัญชี AWS จริง) LocalStack รับค่าอะไรก็ได้
-        AWS_ACCESS_KEY_ID = 'localstack'
-        AWS_SECRET_ACCESS_KEY = 'localstack'
+        // Lab 10: ไม่ฝัง key ใน Jenkinsfile แม้เป็นของ LocalStack ใช้ credential ชนิด Username with password
+        // ชื่อ localstack-aws แทน (credentials() ให้ตัวแปร _USR / _PSW มา)
+        LOCALSTACK_AWS = credentials('localstack-aws')
+        AWS_ACCESS_KEY_ID = "${LOCALSTACK_AWS_USR}"
+        AWS_SECRET_ACCESS_KEY = "${LOCALSTACK_AWS_PSW}"
         AWS_DEFAULT_REGION = 'ap-southeast-1'
         TF_IN_AUTOMATION = 'true'
     }

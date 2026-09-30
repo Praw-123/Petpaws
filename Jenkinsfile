@@ -32,41 +32,123 @@ pipeline {
             }
         }
 
-        // Lab 06: ตรวจความปลอดภัยตามลำดับ Secrets -> SAST -> SCA -> SBOM -> Policy Gate
-        // ทั้งหมดอยู่ก่อน Build & Test เพื่อให้โค้ดที่มีปัญหาถูกหยุดตั้งแต่ต้น (shift-left)
-        stage('Security') {
-            stages {
-                stage('Secrets Detection') {
+        // Lab 06: ความลับหลุดต้องเจอก่อนอย่างอื่น ถ้าเจอก็ไม่ต้องเสียเวลาทำขั้นอื่นต่อ
+        stage('Secrets Detection') {
+            agent {
+                docker {
+                    image 'zricethezav/gitleaks:v8.21.2'
+                    label 'linux-build'
+                    args '--entrypoint='
+                    reuseNode true
+                }
+            }
+            environment {
+                // git config --global ต้องเขียนไฟล์ใน HOME ซึ่งใน container นี้เขียนไม่ได้
+                HOME = "${WORKSPACE}"
+            }
+            steps {
+                script { env.LAST_STAGE = env.STAGE_NAME }
+                // สแกนทุก commit ในประวัติ ไม่ใช่แค่โค้ดล่าสุด เพราะความลับที่ลบไปแล้วยังค้างใน git
+                // .gitleaksignore ยกเว้น 2 จุดที่ตรวจแล้วว่าไม่ใช่ความลับจริง (ดูเหตุผลในไฟล์)
+                // safe.directory: workspace เป็นของ uid อื่น git จะไม่ยอมอ่านถ้าไม่ประกาศ
+                sh '''
+                    mkdir -p reports
+                    git config --global --add safe.directory "$WORKSPACE"
+                    gitleaks detect --source . --redact --no-banner \
+                      --report-format json --report-path reports/gitleaks.json
+                '''
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'reports/gitleaks.json', allowEmptyArchive: true
+                }
+            }
+        }
+
+        // Lab 10: ขั้นที่ไม่ขึ้นต่อกันรันขนาน (Lint + Unit Test บน Kubernetes Pod, SAST, SCA)
+        // ส่วนขั้นที่ต้องใช้ผลของกันและกันรันต่อกันตามลำดับ: SBOM -> Policy -> Build Image -> Scan -> Deploy
+        stage('Verify') {
+            parallel {
+                stage('Build & Test') {
+                    // รันใน container node:22-alpine บน agent linux-build (agent ตัวเดียวที่สั่ง docker ได้)
+                    // คู่มือใช้ node:20-alpine แต่ backend ของ PetPaws ต้องใช้ Node 22: dependency บางตัวกำหนด
+                    // engine >= 22 และบน Node 20 + alpine แพ็กเกจ argon2 ไม่มีไฟล์สำเร็จรูป ต้องคอมไพล์เอง
+                    // Lab 09: ย้ายจาก docker agent บน linux-build มาเป็น Pod ชั่วคราวบน Kubernetes (kind)
+                    // Jenkins สร้าง Pod ใหม่ทุก build แล้วลบทิ้งเมื่อจบ ไม่ต้องมีเครื่อง agent ค้างไว้
                     agent {
-                        docker {
-                            image 'zricethezav/gitleaks:v8.21.2'
-                            label 'linux-build'
-                            args '--entrypoint='
-                            reuseNode true
+                        kubernetes {
+                            defaultContainer 'node'
+                            yaml '''
+        apiVersion: v1
+        kind: Pod
+        spec:
+          containers:
+          - name: node
+            image: node:22-alpine
+            imagePullPolicy: IfNotPresent
+            command: ['cat']
+            tty: true
+          - name: jnlp
+            image: jenkins/inbound-agent:latest-jdk21
+            imagePullPolicy: IfNotPresent
+        '''
                         }
                     }
                     environment {
-                        // git config --global ต้องเขียนไฟล์ใน HOME ซึ่งใน container นี้เขียนไม่ได้
-                        HOME = "${WORKSPACE}"
+                        npm_config_cache = "${WORKSPACE}/.npm"
                     }
-                    steps {
-                        script { env.LAST_STAGE = env.STAGE_NAME }
-                        // สแกนทุก commit ในประวัติ ไม่ใช่แค่โค้ดล่าสุด เพราะความลับที่ลบไปแล้วยังค้างใน git
-                        // .gitleaksignore ยกเว้น 2 จุดที่ตรวจแล้วว่าไม่ใช่ความลับจริง (ดูเหตุผลในไฟล์)
-                        // safe.directory: workspace เป็นของ uid อื่น git จะไม่ยอมอ่านถ้าไม่ประกาศ
-                        sh '''
-                            mkdir -p reports
-                            git config --global --add safe.directory "$WORKSPACE"
-                            gitleaks detect --source . --redact --no-banner \
-                              --report-format json --report-path reports/gitleaks.json
-                        '''
+                    stages {
+                        stage('Install') {
+                            steps {
+                                // post ระดับ pipeline ไม่ได้อยู่ใน stage ไหน env.STAGE_NAME ตรงนั้นจึงเป็น null
+                                // เลยจำชื่อ stage ล่าสุดไว้เอง เพื่อให้ post failure บอกได้ว่าพังที่ stage ไหน
+                                script { env.LAST_STAGE = env.STAGE_NAME }
+                                // Pod เป็น workspace ใหม่ทุกครั้ง ต้องดึงโค้ดเอง (ใน container jnlp ซึ่งมี git)
+                                container('jnlp') {
+                                    retry(3) {
+                                        checkout scm
+                                    }
+                                }
+                                echo "Building ${env.APP_NAME} (NODE_ENV=${env.NODE_ENV})"
+                                dir('backend/api') {
+                                    sh 'node --version'
+                                    sh 'npm ci'
+                                }
+                            }
+                        }
+                        stage('Lint') {
+                            steps {
+                                script { env.LAST_STAGE = env.STAGE_NAME }
+                                dir('backend/api') {
+                                    sh 'npm run lint'
+                                }
+                            }
+                        }
+                        stage('Unit Test') {
+                            steps {
+                                script { env.LAST_STAGE = env.STAGE_NAME }
+                                dir('backend/api') {
+                                    // คู่มือใช้ Jest + jest-junit แต่โปรเจกต์นี้ใช้ Vitest ซึ่งมี reporter แบบ JUnit ในตัว
+                                    // coverage ออกทั้ง cobertura (ให้ Jenkins) และ lcov (ให้ SonarQube) ดู vitest.config.ts
+                                    sh 'npx vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=reports/junit.xml'
+                                }
+                            }
+                        }
                     }
                     post {
                         always {
-                            archiveArtifacts artifacts: 'reports/gitleaks.json', allowEmptyArchive: true
+                            junit testResults: 'backend/api/reports/junit.xml', allowEmptyResults: true
+                            // publishCoverage ในคู่มือถูกเลิกใช้แล้ว Coverage plugin ตัวใหม่ใช้ recordCoverage แทน
+                            recordCoverage tools: [[parser: 'COBERTURA', pattern: 'backend/api/coverage/cobertura-coverage.xml']],
+                                sourceDirectories: [[path: 'backend/api']]
+                            // npm 10 ไม่สร้าง npm-debug.log ในโฟลเดอร์งานแล้ว แต่เขียน log ไว้ใน cache/_logs แทน
+                            archiveArtifacts artifacts: 'backend/api/npm-debug.log*, .npm/_logs/*.log', allowEmptyArchive: true
+                            // Pod ถูกลบเมื่อ stage จบ ส่งไฟล์ coverage ต่อให้ stage SonarQube ที่รันบน linux-build
+                            stash name: 'coverage', includes: 'backend/api/coverage/**', allowEmpty: true
                         }
                     }
                 }
+
                 stage('SAST - ESLint') {
                     agent {
                         docker {
@@ -181,6 +263,11 @@ pipeline {
                         }
                     }
                 }
+            }
+        }
+
+        stage('Supply Chain') {
+            stages {
                 stage('Generate SBOM') {
                     agent {
                         docker {
@@ -257,86 +344,6 @@ pipeline {
             }
         }
 
-        stage('Build & Test') {
-            // รันใน container node:22-alpine บน agent linux-build (agent ตัวเดียวที่สั่ง docker ได้)
-            // คู่มือใช้ node:20-alpine แต่ backend ของ PetPaws ต้องใช้ Node 22: dependency บางตัวกำหนด
-            // engine >= 22 และบน Node 20 + alpine แพ็กเกจ argon2 ไม่มีไฟล์สำเร็จรูป ต้องคอมไพล์เอง
-            // Lab 09: ย้ายจาก docker agent บน linux-build มาเป็น Pod ชั่วคราวบน Kubernetes (kind)
-            // Jenkins สร้าง Pod ใหม่ทุก build แล้วลบทิ้งเมื่อจบ ไม่ต้องมีเครื่อง agent ค้างไว้
-            agent {
-                kubernetes {
-                    defaultContainer 'node'
-                    yaml '''
-apiVersion: v1
-kind: Pod
-spec:
-  containers:
-  - name: node
-    image: node:22-alpine
-    imagePullPolicy: IfNotPresent
-    command: ['cat']
-    tty: true
-  - name: jnlp
-    image: jenkins/inbound-agent:latest-jdk21
-    imagePullPolicy: IfNotPresent
-'''
-                }
-            }
-            environment {
-                npm_config_cache = "${WORKSPACE}/.npm"
-            }
-            stages {
-                stage('Install') {
-                    steps {
-                        // post ระดับ pipeline ไม่ได้อยู่ใน stage ไหน env.STAGE_NAME ตรงนั้นจึงเป็น null
-                        // เลยจำชื่อ stage ล่าสุดไว้เอง เพื่อให้ post failure บอกได้ว่าพังที่ stage ไหน
-                        script { env.LAST_STAGE = env.STAGE_NAME }
-                        // Pod เป็น workspace ใหม่ทุกครั้ง ต้องดึงโค้ดเอง (ใน container jnlp ซึ่งมี git)
-                        container('jnlp') {
-                            retry(3) {
-                                checkout scm
-                            }
-                        }
-                        echo "Building ${env.APP_NAME} (NODE_ENV=${env.NODE_ENV})"
-                        dir('backend/api') {
-                            sh 'node --version'
-                            sh 'npm ci'
-                        }
-                    }
-                }
-                stage('Lint') {
-                    steps {
-                        script { env.LAST_STAGE = env.STAGE_NAME }
-                        dir('backend/api') {
-                            sh 'npm run lint'
-                        }
-                    }
-                }
-                stage('Unit Test') {
-                    steps {
-                        script { env.LAST_STAGE = env.STAGE_NAME }
-                        dir('backend/api') {
-                            // คู่มือใช้ Jest + jest-junit แต่โปรเจกต์นี้ใช้ Vitest ซึ่งมี reporter แบบ JUnit ในตัว
-                            // coverage ออกทั้ง cobertura (ให้ Jenkins) และ lcov (ให้ SonarQube) ดู vitest.config.ts
-                            sh 'npx vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=reports/junit.xml'
-                        }
-                    }
-                }
-            }
-            post {
-                always {
-                    junit testResults: 'backend/api/reports/junit.xml', allowEmptyResults: true
-                    // publishCoverage ในคู่มือถูกเลิกใช้แล้ว Coverage plugin ตัวใหม่ใช้ recordCoverage แทน
-                    recordCoverage tools: [[parser: 'COBERTURA', pattern: 'backend/api/coverage/cobertura-coverage.xml']],
-                        sourceDirectories: [[path: 'backend/api']]
-                    // npm 10 ไม่สร้าง npm-debug.log ในโฟลเดอร์งานแล้ว แต่เขียน log ไว้ใน cache/_logs แทน
-                    archiveArtifacts artifacts: 'backend/api/npm-debug.log*, .npm/_logs/*.log', allowEmptyArchive: true
-                    // Pod ถูกลบเมื่อ stage จบ ส่งไฟล์ coverage ต่อให้ stage SonarQube ที่รันบน linux-build
-                    stash name: 'coverage', includes: 'backend/api/coverage/**', allowEmpty: true
-                }
-            }
-        }
-
         stage('SonarQube Analysis') {
             agent {
                 docker {
@@ -394,10 +401,9 @@ spec:
                 E2E_IMAGE = 'node:22-bookworm-slim'
                 npm_config_cache = "${WORKSPACE}/.npm"
                 HOME = "${WORKSPACE}"
-                // ค่าสำหรับ backend ชั่วคราวใน e2e เท่านั้น ไม่ใช่ของจริง
-                DATABASE_URL = 'postgresql://petpaws:e2e@petpaws-e2e-db:5432/petpaws'
-                JWT_ACCESS_SECRET = 'e2e-access'
-                JWT_REFRESH_SECRET = 'e2e-refresh'
+                // Lab 10: รหัสผ่าน/secret ทั้งหมดอยู่ใน Jenkins credential ชนิด Secret file ชื่อ e2e-env
+                // (DATABASE_URL, POSTGRES_PASSWORD, JWT_*_SECRET, S3/MinIO keys) ไม่ฝังค่าใน Jenkinsfile
+                E2E_ENV = credentials('e2e-env')
                 JWT_ACCESS_TTL = '15m'
                 JWT_REFRESH_TTL = '1d'
                 API_PORT = '3000'
@@ -405,8 +411,6 @@ spec:
                 S3_ENDPOINT = 'http://petpaws-e2e-minio:9000'
                 S3_REGION = 'ap-southeast-1'
                 S3_BUCKET = 'petpaws-media'
-                S3_ACCESS_KEY_ID = 'e2e'
-                S3_SECRET_ACCESS_KEY = 'e2e-secret-123'
                 S3_FORCE_PATH_STYLE = 'true'
                 S3_UPLOAD_URL_TTL = '900'
             }
@@ -418,12 +422,12 @@ spec:
                 sh '''
                     docker rm -f petpaws-e2e-db petpaws-e2e-minio >/dev/null 2>&1 || true
                     docker create --name petpaws-e2e-db --network jenkins \
-                      -e POSTGRES_USER=petpaws -e POSTGRES_PASSWORD=e2e -e POSTGRES_DB=petpaws \
+                      --env-file "$E2E_ENV" -e POSTGRES_USER=petpaws -e POSTGRES_DB=petpaws \
                       postgres:16-alpine
                     docker cp backend/db/migrations/. petpaws-e2e-db:/docker-entrypoint-initdb.d/
                     docker start petpaws-e2e-db
                     docker run -d --name petpaws-e2e-minio --network jenkins \
-                      -e MINIO_ROOT_USER=e2e -e MINIO_ROOT_PASSWORD=e2e-secret-123 \
+                      --env-file "$E2E_ENV" \
                       quay.io/minio/minio:latest server /data
                     until docker logs petpaws-e2e-db 2>&1 | grep -q "PostgreSQL init process complete"; do sleep 2; done
                     until docker exec petpaws-e2e-db pg_isready -h 127.0.0.1 -U petpaws; do sleep 1; done
@@ -432,6 +436,7 @@ spec:
                     docker.image(env.E2E_IMAGE).inside('--network jenkins') {
                         // เปิด backend ใน step เดียวกับเทส ให้ปิดพร้อมกันเมื่อ step จบ
                         sh '''
+                            set -a; . "$E2E_ENV"; set +a
                             cd backend/api
                             npm ci
                             npm run build
@@ -578,6 +583,32 @@ spec:
                 sh 'echo deploying to staging...'
             }
         }
+        // Lab 10: ก่อนขึ้น production ถาม Prometheus ว่า pipeline ช่วงหลังเสถียรไหม
+        // อัตราสำเร็จของ build ต่ำกว่า 90% = ระบบไม่เสถียร ห้าม deploy จนกว่าจะแก้ให้ build กลับมาผ่าน
+        stage('Pipeline Health Gate') {
+            when {
+                beforeAgent true
+                branch 'main'
+            }
+            agent { label 'linux-build' }
+            steps {
+                script {
+                    env.LAST_STAGE = env.STAGE_NAME
+                    // Prometheus plugin เก็บจำนวน build ที่สำเร็จ/ล้มของทุก job ในช่วง retention (7 วัน)
+                    def q = 'sum(max_over_time({__name__=~"default_jenkins_builds_success_build_count(_total)?"}[7d]))' +
+                            ' / (sum(max_over_time({__name__=~"default_jenkins_builds_success_build_count(_total)?"}[7d]))' +
+                            ' + sum(max_over_time({__name__=~"default_jenkins_builds_failed_build_count(_total)?"}[7d])))'
+                    def rate = sh(returnStdout: true, script: """
+                        curl -s --get http://prometheus:9090/api/v1/query --data-urlencode 'query=${q}' |
+                          node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const r=JSON.parse(d).data.result;console.log(r.length?r[0].value[1]:'0')})"
+                    """).trim().toDouble()
+                    echo "Pipeline success rate (Prometheus): ${String.format('%.1f', rate * 100)}% (threshold 90%)"
+                    if (rate < 0.9) {
+                        error("Pipeline Health Gate: success rate ${String.format('%.1f', rate * 100)}% < 90%, production deploy blocked")
+                    }
+                }
+            }
+        }
         stage('Deploy — Production') {
             // beforeInput / beforeAgent: เช็ค branch ก่อนถามอนุมัติและก่อนจอง agent
             // ไม่งั้น Jenkins จะหยุดถาม input ในทุก branch ก่อน แล้วค่อยข้าม stage ทีหลัง
@@ -603,6 +634,24 @@ spec:
         }
         failure {
             echo "FAILURE: failed at stage: ${env.LAST_STAGE}"
+        }
+        // Lab 10: แจ้งผลทุก build เข้า Slack พร้อมชื่อ branch และลิงก์ build
+        // Webhook URL เป็นความลับ (ใครได้ไปก็โพสต์เข้า channel ได้) จึงเก็บใน credential slack-webhook
+        always {
+            script {
+                def branch = env.BRANCH_NAME ?: 'main'
+                def status = currentBuild.currentResult
+                def icon = status == 'SUCCESS' ? ':white_check_mark:' : ':x:'
+                def text = "${icon} ${env.JOB_NAME} #${env.BUILD_NUMBER} ${status}\\nbranch: ${branch}" +
+                           (status == 'SUCCESS' ? '' : "\\nfailed at: ${env.LAST_STAGE}") +
+                           "\\n${env.BUILD_URL}"
+                node('linux-build') {
+                    withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_URL')]) {
+                        writeFile file: 'slack.json', text: "{\"text\": \"${text}\"}"
+                        sh 'curl -s -X POST -H "Content-Type: application/json" --data @slack.json "$SLACK_URL" || true'
+                    }
+                }
+            }
         }
     }
 }
