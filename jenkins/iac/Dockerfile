@@ -20,3 +20,6 @@ RUN pip install --no-cache-dir ansible-core==2.17.7 ansible-lint==24.12.2 checko
 
 # ansible-lint ต้องมี collection ที่ playbook ใช้ติดตั้งไว้ก่อน
 RUN ansible-galaxy collection install community.general community.docker -p /usr/share/ansible/collections
+
+# Jenkins รัน container ด้วย uid 1000 (ผู้ใช้ของ agent) ssh จะไม่ทำงานถ้า uid นี้ไม่มีใน /etc/passwd
+RUN useradd --uid 1000 --create-home --shell /bin/bash jenkins
