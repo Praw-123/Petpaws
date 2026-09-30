@@ -99,15 +99,16 @@ pipeline {
                         // checkov เก็บรายงานไว้ดูประกอบ (soft-fail) เพราะมีกฎที่ไม่เกี่ยวกับสภาพแวดล้อมจำลอง
                         // เช่น ต้องผูก IAM role หรือเปิด VPC flow log ซึ่ง LocalStack รุ่นฟรีไม่รองรับ
                         sh '''
-                            tfsec infra/terraform --no-color --format lovely,json,sarif \
-                              --out reports/tfsec --minimum-severity HIGH
+                            # เก็บรายงานทุกระดับไว้เป็นไฟล์ก่อน (soft-fail) แล้วค่อยรันตัวตัดสินที่แสดงผลใน log
+                            tfsec infra/terraform --no-color --soft-fail --format json,sarif --out reports/tfsec
                             checkov -d infra/terraform --framework terraform --compact --quiet \
                               --soft-fail -o cli -o json --output-file-path console,reports/checkov
+                            tfsec infra/terraform --no-color --minimum-severity HIGH
                         '''
                     }
                     post {
                         always {
-                            archiveArtifacts artifacts: 'reports/tfsec*, reports/checkov/**', allowEmptyArchive: true
+                            archiveArtifacts artifacts: 'reports/tfsec*, reports/checkov*, reports/checkov/**', allowEmptyArchive: true
                         }
                     }
                 }

@@ -11,9 +11,9 @@ variable "localstack_endpoint" {
 }
 
 variable "ami_id" {
-  description = "AMI for the app instance (LocalStack's built-in Amazon Linux image id)"
+  description = "AMI for the app instance (Ubuntu AMI that ships with LocalStack)"
   type        = string
-  default     = "ami-df5de72bdb3b"
+  default     = "ami-1e749f67"
 }
 
 variable "allowed_cidr" {

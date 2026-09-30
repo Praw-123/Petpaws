@@ -56,8 +56,9 @@ resource "aws_instance" "app" {
   ami                    = var.ami_id
   instance_type          = "t3.micro"
   vpc_security_group_ids = [aws_security_group.web.id]
-  monitoring             = true
-  ebs_optimized          = true
+  # detailed monitoring (CloudWatch) ปิดไว้ เพราะ LocalStack รุ่นฟรียังไม่รองรับคำสั่ง MonitorInstances
+  monitoring    = false
+  ebs_optimized = true
 
   tags = merge(local.tags, { Name = "petpaws-app" })
 }
