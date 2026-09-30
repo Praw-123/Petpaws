@@ -82,3 +82,12 @@ e2e/test-results/
 
 # Lab 07: ค่า Secret ของคลัสเตอร์ kind (สร้างจาก k8s/petpaws-env.example)
 k8s/petpaws-env.env
+
+# Lab 08: Terraform state/plan อยู่ใน remote backend และ artifact ของ Jenkins ไม่เก็บใน git
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+tfplan.txt
+infra/ansible/ansible_key
+.terraform-plugin-cache/

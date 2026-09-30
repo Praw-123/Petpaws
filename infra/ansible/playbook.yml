@@ -1,0 +1,40 @@
+---
+# Lab 08: ตั้งค่าเครื่องที่ Terraform สร้างให้พร้อมรัน petpaws-api
+# ติดตั้ง Node.js และ Docker แล้วดึง image ของ API จาก registry ในเครื่อง
+# รายชื่อเครื่องมาจาก tf_inventory.py ซึ่งอ่าน `terraform output` (dynamic inventory)
+- name: Configure petpaws app host
+  hosts: app
+  gather_facts: true
+
+  vars:
+    api_image: "{{ lookup('ansible.builtin.env', 'API_IMAGE') | default('localhost:5001/petpaws-api', true) }}"
+    api_tag: "{{ lookup('ansible.builtin.env', 'API_TAG') | default('initial', true) }}"
+
+  tasks:
+    - name: Install Node.js and Docker CLI
+      ansible.builtin.apt:
+        name:
+          - nodejs
+          - docker.io
+          - python3-docker
+        state: present
+        update_cache: true
+        install_recommends: false
+
+    - name: Pull the petpaws-api image
+      community.docker.docker_image:
+        name: "{{ api_image }}"
+        tag: "{{ api_tag }}"
+        source: pull
+
+    - name: Read installed versions
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - node --version
+        - docker --version
+      register: versions
+      changed_when: false
+
+    - name: Show installed versions
+      ansible.builtin.debug:
+        msg: "{{ versions.results | map(attribute='stdout') | list }}"

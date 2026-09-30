@@ -1,0 +1,4 @@
+---
+# playbook ติดตั้งแพ็กเกจเวอร์ชันล่าสุดของ Debian ตั้งใจไม่ล็อกเวอร์ชัน
+skip_list:
+  - package-latest
