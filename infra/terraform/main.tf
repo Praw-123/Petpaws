@@ -30,23 +30,25 @@ data "aws_vpc" "default" {
 
 resource "aws_security_group" "web" {
   name        = "petpaws-web"
-  description = "Allow HTTP to petpaws-api on port 8080"
+  description = "Allow HTTP to petpaws-api on port 8080 from the internal network only"
   vpc_id      = data.aws_vpc.default.id
 
+  # tfsec aws-ec2-no-public-ingress-sgr: เดิมเปิด 0.0.0.0/0 (ทั้งอินเทอร์เน็ต) แก้เป็นเครือข่ายภายใน
   ingress {
-    description = "petpaws-api HTTP"
+    description = "petpaws-api HTTP from internal network"
     from_port   = 8080
     to_port     = 8080
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.allowed_cidr]
   }
 
+  # tfsec aws-ec2-no-public-egress-sgr: เดิมออกได้ทุกที่ แก้ให้ออกได้แค่ HTTPS ในเครือข่ายภายใน
   egress {
-    description = "All outbound traffic"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    description = "HTTPS to internal services"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [var.allowed_cidr]
   }
 
   tags = local.tags
@@ -59,6 +61,19 @@ resource "aws_instance" "app" {
   # detailed monitoring (CloudWatch) ปิดไว้ เพราะ LocalStack รุ่นฟรียังไม่รองรับคำสั่ง MonitorInstances
   monitoring    = false
   ebs_optimized = true
+
+  # tfsec aws-ec2-enforce-http-token-imds: บังคับ IMDSv2 กันการขโมย credential ผ่าน SSRF
+  metadata_options {
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+  }
+
+  # tfsec aws-ec2-enable-at-rest-encryption: เข้ารหัสดิสก์
+  root_block_device {
+    encrypted   = true
+    volume_size = 8
+    volume_type = "gp3"
+  }
 
   tags = merge(local.tags, { Name = "petpaws-app" })
 }
